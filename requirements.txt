@@ -1,7 +1,3 @@
-# Tell Streamlit what Python version to use
-python==3.11
-
-# Your app's dependencies
 streamlit
 python-dotenv
 pymongo
