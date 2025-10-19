@@ -3,6 +3,7 @@ python-dotenv
 pymongo
 langchain-google-genai
 langchain
+langchain.agents
 langchain-community
 beautifulsoup4
 google
