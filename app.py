@@ -1,4 +1,4 @@
-# file: app.py (Updated with UI notifications)
+# file: app.py (Updated with Conversation Memory)
 
 import streamlit as st
 import os
@@ -13,6 +13,7 @@ from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 from googlesearch import search as google_search_func
 from langchain.tools import tool
+from langchain_core.messages import HumanMessage, AIMessage
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -43,7 +44,7 @@ def load_backend():
     def web_search(query: str) -> str:
         """Use for general knowledge questions, current events, or topics not found in the medical research database."""
         try:
-            return " ".join(list(google_search_func(query)))
+            return " ".join(list(google_search_func(query, num_results=5)))
         except Exception as e:
             return f"Error during web search: {e}"
 
@@ -56,15 +57,15 @@ def load_backend():
 
     tools = [retriever_tool, web_search, define_medical_term]
     
+
     agent_prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are an advanced AI medical assistant. Choose the best tool for the user's question. Output only the direct result from the tool call."),
+        ("system", "You are an advanced AI medical assistant. Choose the best tool for the user's question. Use conversation history to understand context from previous messages. Output only the direct result from the tool call."),
+        ("placeholder", "{chat_history}"),
         ("human", "{input}"),
         ("placeholder", "{agent_scratchpad}"),
     ])
     agent = create_tool_calling_agent(agent_llm, tools, agent_prompt)
     
-    # --- MODIFIED LINE ---
-    # We tell the agent to return its internal steps
     agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True, return_intermediate_steps=True)
     
     framing_prompt_template = """You are a helpful AI assistant explaining complex topics simply. Frame the raw information below into a clear, conversational answer. If it's from medical research, add a disclaimer: "As an AI assistant, I am not a medical professional. This information is for educational purposes only. Please consult a doctor for medical advice."
@@ -86,8 +87,13 @@ agent_executor, framing_chain, db, embeddings, retriever = load_backend()
 associations_collection = db.learned_associations
 SIMILARITY_THRESHOLD = 0.92
 
+# --- MODIFIED SESSION STATE INITIALIZATION ---
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "assistant", "content": "Hello! How can I help you today?"}]
+# Initialize chat history
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+
 
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
@@ -101,40 +107,37 @@ if prompt := st.chat_input("Ask a question about a medical topic..."):
     with st.chat_message("assistant"):
         final_answer = ""
         with st.spinner("Thinking..."):
-            question_embedding = embeddings.embed_query(prompt)
-            pipeline = [
-                {"$vectorSearch": {"index": "vector_index_associations", "path": "question_embedding", "queryVector": question_embedding, "numCandidates": 5, "limit": 1}},
-                {"$project": {"score": {"$meta": "vectorSearchScore"}, "answer_text": 1}}
-            ]
-            learned_results = list(associations_collection.aggregate(pipeline))
-            
-            if learned_results and learned_results[0]['score'] > SIMILARITY_THRESHOLD and False:
-                st.info("Using a learned answer from memory...", icon="💡")
-                raw_output = learned_results[0]['answer_text']
-                final_answer = framing_chain.invoke({"question": prompt, "context": raw_output})
-            else:
-                agent_result = agent_executor.invoke({"input": prompt})
-                raw_output = agent_result["output"]
+            # --- MODIFIED AGENT INVOCATION ---
+            # We now pass the chat_history along with the input
+            agent_result = agent_executor.invoke({
+                "input": prompt,
+                "chat_history": st.session_state.chat_history
+            })
+            raw_output = agent_result["output"]
 
-                # --- NEW SECTION ---
-                # Check which tool the agent used and display a notification
-                if agent_result.get("intermediate_steps"):
-                    tool_name = agent_result["intermediate_steps"][0][0].tool
-                    if tool_name == "medical_research_search":
-                        st.info("Searching ingested research articles...", icon="🧠")
-                    elif tool_name == "web_search":
-                        st.info("Searching the web for general information...", icon="🌐")
-                    elif tool_name == "define_medical_term":
-                        st.info("Defining medical term...", icon="📖")
-                
-                final_answer = framing_chain.invoke({"question": prompt, "context": raw_output})
+            if agent_result.get("intermediate_steps"):
+                tool_name = agent_result["intermediate_steps"][0][0].tool
+                if tool_name == "medical_research_search":
+                    st.info("Searching ingested research articles...", icon="🧠")
+                elif tool_name == "web_search":
+                    st.info("Searching the web for general information...", icon="🌐")
+                elif tool_name == "define_medical_term":
+                    st.info("Defining medical term...", icon="📖")
             
-            st.markdown(final_answer)
-            st.session_state.last_response = {"question": prompt, "answer": final_answer}
+            final_answer = framing_chain.invoke({"question": prompt, "context": raw_output})
+        
+        st.markdown(final_answer)
+        st.session_state.last_response = {"question": prompt, "answer": final_answer}
     
     st.session_state.messages.append({"role": "assistant", "content": final_answer})
+    
+    # --- NEW SECTION: UPDATE CHAT HISTORY ---
+    # Add the user's message and the AI's response to the history
+    st.session_state.chat_history.append(HumanMessage(content=prompt))
+    st.session_state.chat_history.append(AIMessage(content=final_answer))
 
 
+# Feedback section remains the same
 if len(st.session_state.messages) > 1 and "last_response" in st.session_state:
     last_question = st.session_state.last_response["question"]
     last_answer = st.session_state.last_response["answer"]
