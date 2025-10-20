@@ -44,7 +44,7 @@ def load_backend():
     def web_search(query: str) -> str:
         """Use for general knowledge questions, current events, or topics not found in the medical research database."""
         try:
-            return " ".join(list(google_search_func(query, num_results=5)))
+            return " ".join(list(google_search_func(query)))
         except Exception as e:
             return f"Error during web search: {e}"
 
