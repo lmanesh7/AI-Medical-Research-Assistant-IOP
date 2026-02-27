@@ -46,7 +46,7 @@ def show_maintenance_page():
     st.info("Estimated uptime: " + os.getenv("UPTIME"))
     st.stop()
     
-if True:
+if MAINTENANCE_MODE:
     show_maintenance_page()
     st.stop()
 
