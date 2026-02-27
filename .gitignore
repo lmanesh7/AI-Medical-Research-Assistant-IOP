@@ -1,3 +1,5 @@
 .venv
 .env
 diagnosis.py
+ingest.py
+.google-cookie

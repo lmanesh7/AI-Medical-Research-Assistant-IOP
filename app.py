@@ -16,6 +16,10 @@ from googlesearch import search as google_search_func
 from langchain.tools import tool
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
+MAINTENANCE_MODE = os.getenv("MAINTENANCE_MODE", "false").lower() == "true"
+
+
+
 # --- 1. Page Configuration ---
 st.set_page_config(
     page_title="AI Medical Research Assistant",
@@ -35,6 +39,17 @@ def check_secrets():
 
 check_secrets()
 
+def show_maintenance_page():
+    st.title("🛠️ I'll be right back!")
+    st.write("I'm currently undergoing scheduled maintenance.")
+    st.image(os.getenv("MAINTENANCE_IMAGE"))
+    st.info("Estimated uptime: " + os.getenv("UPTIME"))
+    st.stop()
+    
+if True:
+    show_maintenance_page()
+    st.stop()
+
 # --- 3. Backend Setup (Cached) ---
 @st.cache_resource(show_spinner="Initializing AI & Database...")
 def load_backend():
@@ -50,7 +65,7 @@ def load_backend():
         temperature=0.5
     )
     
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
     
     # Mongo Connection
     try:
